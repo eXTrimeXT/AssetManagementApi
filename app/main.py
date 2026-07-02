@@ -74,7 +74,7 @@ app.add_middleware(LoggingMiddleware)
 
 # --- Подключение API Маршрутов ---
 app.include_router(router_redis, prefix="/api")             # Only DEV: check redis storage
-app.include_router(router_auth, prefix="/api")           # PC DATA
+app.include_router(router_auth, prefix="/api")              # Роутер авторизации
 app.include_router(router_pc_data, prefix="/api")           # PC DATA
 app.include_router(router_android_data, prefix="/api")      # Android DATA
 app.include_router(router_zup, prefix="/api")               # 1С ЗУП
