@@ -12,15 +12,12 @@ from app.schemas.auth.AuthSchemas import UserInfoResponse, TokenRequest, LoginRe
 from app.services.auth.auth_service import (
     get_user_from_token,
     TokenValidationError,
-    create_or_update_user_from_token,
     JWT_SECRET_KEY
 )
 from app.models.UserJWTData import UserJWTData
 from app.services.redis.redis_client import redis_client
-from app.database.crud_users import get_user_by_tab_id
 from app.models.zup.employee import Employee
 from app.services.auth.external_auth import external_login
-from app.database.crud_groups import get_hierarchy_by_group_params
 
 logger = logging.getLogger(__name__)
 
@@ -32,59 +29,40 @@ async def save_session_to_redis(login: str, token: str, ttl: int) -> None:
     await redis_client.set(session_key, json.dumps(session_data), ex=ttl)
 
 
-async def create_or_get_user(db, request, response, login, department: Optional[str] = None):
-    # === Получаем иерархию по аббревиатуре отдела ===
-    group_id = None
-    division_id = None
-    department_id = None
-    if department:
-        hierarchy = await get_hierarchy_by_group_params(db, abbreviation=department)
-        if hierarchy:
-            first = hierarchy[0]
-            group_id = first.get("group_id")
-            division_id = first.get("division_id")
-            department_id = first.get("department_id")
+async def create_session_for_user(db, request, response, login):
+    """
+    Создаёт сессию для существующего сотрудника из 1С.
+    НЕ создаёт новых пользователей - они должны быть синхронизированы из 1С.
+    """
+    # Проверяем, есть ли сотрудник в БД
+    from app.database.crud_zup_employees import get_employee_by_id
+    employee = await get_employee_by_id(db, login)
+
+    if not employee:
+        logger.warning(f"Сотрудник {login} не найден в БД. Синхронизируйте данные из 1С через /api/zup/sync")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Сотрудник {login} не найден. Обратитесь к администратору для синхронизации из 1С."
+        )
+
+    # Проверяем, действующий ли сотрудник
+    if not employee.is_active:
+        logger.warning(f"Сотрудник {login} уволен")
+        raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
 
     now = datetime.now()
-    user = await get_user_by_tab_id(db, login)
-
-    if not user:
-        user = User(
-            user_tab_id=login,
-            user_en_name=login,
-            owner=login,
-            email=f"{login}@hmmr.ru",
-            permissions={},
-            group_id=group_id,
-            division_id=division_id,
-            department_id=department_id,
-            is_active=True,
-            created_at=now,
-            updated_at=now
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-    else:
-        user.group_id = group_id
-        user.division_id = division_id
-        user.department_id = department_id
-        user.updated_at = now
-        await db.commit()
 
     # Генерируем JWT токен
     payload = {
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=222)).timestamp()),
+        "exp": int((now + timedelta(hours=12)).timestamp()),
         "login": login,
         "last_ip": request.client.host if request.client else "127.0.0.1",
         "last_time": now.strftime("%H:%M:%S %d.%m.%Y"),
-        "permissions": [],
         "user_data": {
-            "email": f"{login}@hmmr.ru",
-            "fullname": login,
-            "distinguishedName": f"CN={login}",
-            "groups": [login]
+            "email": employee.email or f"{login}@hmmr.ru",
+            "fullname": employee.full_name_ru,
+            "employee_id": employee.employee_id
         }
     }
 
@@ -107,18 +85,18 @@ async def create_or_get_user(db, request, response, login, department: Optional[
     )
 
     return UserInfoResponse(
-        # user_id=user.user_id,
         login=login,
-        email=f"{login}@hmmr.ru",
-        fullname=login,
+        email=employee.email or f"{login}@hmmr.ru",
+        fullname=employee.full_name_ru,
         distinguished_name=f"CN={login}",
-        groups=[login],
+        groups=[],
         permissions={},
         assets_admin=False,
         last_ip=payload["last_ip"],
         last_time=payload["last_time"],
         token=token
     )
+
 
 @router_auth.post("/login", response_model=UserInfoResponse, status_code=200)
 async def login_by_credentials(
@@ -134,22 +112,13 @@ async def login_by_credentials(
     """
     # Удаляем старую сессию перед новым входом
     response.delete_cookie(key="session_token", path="/")
+
+    system_users = ["root", "read", "write", "android", "pc_data"]
+
     try:
         # === Обработка системных пользователей ===
-        if credentials.login == credentials.password == "root":
-            return await create_or_get_user(db, request, response, credentials.login)
-
-        if credentials.login == credentials.password == "read":
-            return await create_or_get_user(db, request, response, credentials.login)
-
-        if credentials.login == credentials.password == "write":
-            return await create_or_get_user(db, request, response, credentials.login)
-
-        if credentials.login == credentials.password == "android":
-            return await create_or_get_user(db, request, response, credentials.login)
-
-        if credentials.login == credentials.password == "pc_data":
-            return await create_or_get_user(db, request, response, credentials.login)
+        if credentials.login in system_users and credentials.login == credentials.password:
+            return await create_session_for_user(db, request, response, credentials.login)
 
         # === Обработка обычных пользователей через внешний сервис ===
         # Получаем токен от внешнего сервиса
@@ -160,9 +129,6 @@ async def login_by_credentials(
         if user_data.is_expired:
             logger.warning("Срок действия токена истек")
             raise HTTPException(status_code=401, detail="Срок действия токена истек")
-
-        # Создаём/обновляем пользователя в БД
-        db_user = await create_or_update_user_from_token(db, user_data)
 
         # Сохраняем сессию в Redis
         payload = jwt.decode(
@@ -194,7 +160,6 @@ async def login_by_credentials(
         result = user_data.to_dict()
         result["token"] = token
         # result["user_id"] = db_user.user_id
-        result["user_tab_id"] = db_user.user_tab_id
         logger.info("Авторизация успешна")
         return result
 
@@ -222,8 +187,6 @@ async def auth_token(
             logger.warning("Срок действия токена истек")
             raise HTTPException(status_code=401, detail="Срок действия токена истек")
 
-        db_user = await create_or_update_user_from_token(db, user_data)
-
         payload = jwt.decode(
             request.token,
             key=JWT_SECRET_KEY if JWT_SECRET_KEY else None,
@@ -250,7 +213,6 @@ async def auth_token(
         result = user_data.to_dict()
         result["token"] = request.token  # добавлено
         # result["user_id"] = db_user.user_id
-        result["user_tab_id"] = db_user.user_tab_id
         logger.info("Авторизация успешна")
         return result
 

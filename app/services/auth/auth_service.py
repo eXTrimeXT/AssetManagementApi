@@ -144,51 +144,10 @@ def is_token_valid(token: str, secret_key: Optional[str] = None) -> bool:
         logger.error("Исключение: TokenValidationError")
         return False
 
-async def create_or_update_user_from_token(
-        db: AsyncSession,
-        user_data: UserJWTData
-) -> User:
-    # === Получаем иерархию по аббревиатуре отдела ===
-    group_id = None
-    division_id = None
-    department_id = None
-    if user_data.department:
-        hierarchy = await get_hierarchy_by_group_params(db, abbreviation=user_data.department)
-        if hierarchy:
-            first = hierarchy[0]
-            group_id = first.get("group_id")
-            division_id = first.get("division_id")
-            department_id = first.get("department_id")
-
-    existing_user = await get_user_by_tab_id(db, user_data.login)
-    if existing_user:
-        existing_user.user_en_name = user_data.fullname
-        existing_user.owner = user_data.fullname
-        existing_user.email = user_data.email
-        existing_user.assets_admin = user_data.assets_admin
-        existing_user.permissions = user_data.permissions
-        existing_user.group_id = group_id
-        existing_user.division_id = division_id
-        existing_user.department_id = department_id
-        existing_user.updated_at = datetime.now()
-        await db.commit()
-        await db.refresh(existing_user)
-        return existing_user
-    else:
-        new_user = User(
-            user_tab_id=user_data.login,
-            user_en_name=user_data.fullname,
-            owner=user_data.fullname,
-            email=user_data.email,
-            permissions=user_data.permissions,
-            group_id=group_id,
-            division_id=division_id,
-            department_id=department_id,
-            is_active=True,
-            created_at=datetime.now(),
-            updated_at=datetime.now()
-        )
-        db.add(new_user)
-        await db.commit()
-        await db.refresh(new_user)
-        return new_user
+async def get_session_from_redis(login: str) -> Optional[Dict[str, Any]]:
+    """Получить данные сессии из Redis"""
+    session_key = f"session:{login}"
+    session_data = await redis_client.get(session_key)
+    if session_data:
+        return json.loads(session_data)
+    return None

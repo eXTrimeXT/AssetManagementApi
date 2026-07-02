@@ -20,20 +20,15 @@ class UserBase(BaseModel):
     group_id: Optional[int] = None
 
 
-class UserResponse(UserBase):
-    """Схема ответа с полным набором полей"""
-    department_abbreviation: Optional[str] = None
-    division_abbreviation: Optional[str] = None
-    group_abbreviation: Optional[str] = None
-
-    # user_id: int
-    user_tab_id: Optional[str] = None
-
+class UserResponse(BaseModel):
+    employee_id: str  # табельный номер
+    full_name_ru: Optional[str]
+    full_name_en: Optional[str]
+    email: Optional[str]
+    phone: Optional[str]
+    position_name: Optional[str]  # из 1С
+    department_name: Optional[str]  # из 1С
     is_active: bool
-
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    model_config = ConfigDict(from_attributes=True)
 
 class AssetForUserResponse(BaseModel):
     """Краткая схема для списков"""
