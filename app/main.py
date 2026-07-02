@@ -22,6 +22,7 @@ from app.services.redis.redis_client import router_redis
 from app.routers.router_pc_data import router_pc_data
 from app.routers.router_android_data import router_android_data
 from app.routers.router_zup import router_zup
+from app.routers.router_auth import router_auth
 
 
 # --- Управление жизненным циклом (Lifespan) ---
@@ -67,6 +68,7 @@ app.add_middleware(LoggingMiddleware)
 
 # --- Подключение API Маршрутов ---
 app.include_router(router_redis, prefix="/api")             # Only DEV: check redis storage
+app.include_router(router_auth, prefix="/api")           # PC DATA
 app.include_router(router_pc_data, prefix="/api")           # PC DATA
 app.include_router(router_android_data, prefix="/api")      # Android DATA
 app.include_router(router_zup, prefix="/api")               # 1С ЗУП
