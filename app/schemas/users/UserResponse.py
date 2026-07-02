@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     position_name: Optional[str]  # из 1С
     department_name: Optional[str]  # из 1С
     is_active: bool
+    permissions: Optional[Dict[str, Dict[str, bool]]] = {}
 
 class AssetForUserResponse(BaseModel):
     """Краткая схема для списков"""
