@@ -48,8 +48,8 @@ async def require_authorized_user(
         db: AsyncSession = Depends(get_db)
 ) -> Employee:
     """
-    Проверяет авторизацию и возвращает сотрудника из ZUP по employee_id.
-    Если сотрудник не найден в БД, пытается синхронизировать данные из 1С.
+    Проверяет авторизацию и возвращает сотрудника из ZUP.
+    Права пользователя сохраняются в Redis и доступны через get_user_permissions_from_redis.
     """
     try:
         token = await get_token_from_request(request)
@@ -64,15 +64,15 @@ async def require_authorized_user(
             logger.warning("Недействительный или просроченный сеанс")
             raise HTTPException(status_code=401, detail="Недействительный или просроченный сеанс")
 
-        # === Ищем сотрудника в ZUP по employee_id (login) ===
+        # Ищем сотрудника в ZUP
+        from app.database.crud_zup_employees import get_employee_by_id
         employee = await get_employee_by_id(db, user_data.login)
 
         if not employee:
             logger.info(f"Сотрудник {user_data.login} не найден в БД. Попытка синхронизации из 1С...")
-            # Пытаемся синхронизировать данные из 1С
             try:
+                from app.services.zup_integration import sync_all_data
                 await sync_all_data(db)
-                # Повторно ищем сотрудника после синхронизации
                 employee = await get_employee_by_id(db, user_data.login)
             except Exception as e:
                 logger.error(f"Ошибка синхронизации из 1С: {e}")
@@ -150,4 +150,15 @@ async def get_session_from_redis(login: str) -> Optional[Dict[str, Any]]:
     session_data = await redis_client.get(session_key)
     if session_data:
         return json.loads(session_data)
+    return None
+
+
+async def get_user_permissions_from_redis(login: str) -> Optional[dict]:
+    """
+    Получает права пользователя из Redis.
+    Возвращает словарь прав или None, если сессия не найдена.
+    """
+    session = await get_session_from_redis(login)
+    if session:
+        return session.get("permissions", {})
     return None

@@ -14,15 +14,21 @@ from app.middleware.LoggingMiddleware import LoggingMiddleware
 # from app.middleware.AuthTokenMiddleware import AuthTokenMiddleware
 
 # Импорт роутеров
-
 # Redis
 from app.services.redis.redis_client import router_redis
 
 # Роутеры для данных о ПК и андроид устройств
 from app.routers.router_pc_data import router_pc_data
 from app.routers.router_android_data import router_android_data
-from app.routers.router_zup import router_zup
-from app.routers.router_auth import router_auth
+
+from app.routers.router_zup import router_zup                           # Интеграция с 1С
+from app.routers.router_auth import router_auth                         # Роутер авторизации пользователей
+
+
+from app.routers.router_locations import router_locations               # не зависим
+from app.routers.router_companies import router_companies               # зависим от локации
+from app.routers.router_vendor_classes import router_vendor_classes     # не зависим
+from app.routers.router_vendors import router_vendors                   # зависим от vendor_classes, компании
 
 
 # --- Управление жизненным циклом (Lifespan) ---
@@ -72,6 +78,11 @@ app.include_router(router_auth, prefix="/api")           # PC DATA
 app.include_router(router_pc_data, prefix="/api")           # PC DATA
 app.include_router(router_android_data, prefix="/api")      # Android DATA
 app.include_router(router_zup, prefix="/api")               # 1С ЗУП
+
+app.include_router(router_locations, prefix="/api")         # Location
+app.include_router(router_companies, prefix="/api")         # Companies
+app.include_router(router_vendor_classes, prefix="/api")    # Vendor Classes
+app.include_router(router_vendors, prefix="/api")           # Vendors
 
 
 router_root = APIRouter(tags=["/"])

@@ -23,82 +23,63 @@ logger = logging.getLogger(__name__)
 
 router_auth = APIRouter(tags=["auth"])
 
-async def save_session_to_redis(login: str, token: str, ttl: int) -> None:
+async def save_session_to_redis(login: str, token: str, ttl: int, permissions: dict = None) -> None:
+    """
+    Сохраняет сессию и права пользователя в Redis.
+
+    Структура в Redis:
+    Key: session:{login}
+    Value: {
+        "token": "...",
+        "login": "...",
+        "permissions": {
+            "computer": {"read": true, "write": false},
+            ...
+        }
+    }
+    """
     session_key = f"session:{login}"
-    session_data = {"token": token, "login": login}
+    session_data = {
+        "token": token,
+        "login": login,
+        "permissions": permissions or {}
+    }
     await redis_client.set(session_key, json.dumps(session_data), ex=ttl)
 
 
-async def create_session_for_user(db, request, response, login):
+async def create_or_update_user_from_token(
+        db: AsyncSession,
+        user_data: UserJWTData
+) -> Employee:
     """
-    Создаёт сессию для существующего сотрудника из 1С.
-    НЕ создаёт новых пользователей - они должны быть синхронизированы из 1С.
+    Создаёт/обновляет сотрудника из 1С и сохраняет права в Redis.
     """
-    # Проверяем, есть ли сотрудник в БД
     from app.database.crud_zup_employees import get_employee_by_id
-    employee = await get_employee_by_id(db, login)
+
+    # Ищем сотрудника в ZUP
+    employee = await get_employee_by_id(db, user_data.login)
 
     if not employee:
-        logger.warning(f"Сотрудник {login} не найден в БД. Синхронизируйте данные из 1С через /api/zup/sync")
+        logger.warning(f"Сотрудник {user_data.login} не найден в БД. Синхронизируйте данные из 1С через /api/zup/sync")
         raise HTTPException(
             status_code=404,
-            detail=f"Сотрудник {login} не найден. Обратитесь к администратору для синхронизации из 1С."
+            detail=f"Сотрудник {user_data.login} не найден. Обратитесь к администратору для синхронизации из 1С."
         )
 
     # Проверяем, действующий ли сотрудник
     if not employee.is_active:
-        logger.warning(f"Сотрудник {login} уволен")
+        logger.warning(f"Сотрудник {user_data.login} уволен")
         raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
 
-    now = datetime.now()
+    # === СОХРАНЯЕМ ПРАВА В REDIS ===
+    # Права уже есть в user_data.permissions (из токена внешнего сервиса)
+    # Сохраняем их в Redis вместе с сессией
+    # Это будет сделано в функции save_session_to_redis
 
-    # Генерируем JWT токен
-    payload = {
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=12)).timestamp()),
-        "login": login,
-        "last_ip": request.client.host if request.client else "127.0.0.1",
-        "last_time": now.strftime("%H:%M:%S %d.%m.%Y"),
-        "user_data": {
-            "email": employee.email or f"{login}@hmmr.ru",
-            "fullname": employee.full_name_ru,
-            "employee_id": employee.employee_id
-        }
-    }
-
-    token = jwt.encode(
-        payload,
-        key=JWT_SECRET_KEY if JWT_SECRET_KEY else None,
-        algorithm="HS256" if JWT_SECRET_KEY else "none"
-    )
-
-    ttl = 12 * 60 * 60
-    await save_session_to_redis(login, token, ttl)
-
-    response.set_cookie(
-        key="session_token",
-        value=token,
-        httponly=True,
-        samesite="lax",
-        max_age=ttl,
-        path="/"
-    )
-
-    return UserInfoResponse(
-        login=login,
-        email=employee.email or f"{login}@hmmr.ru",
-        fullname=employee.full_name_ru,
-        distinguished_name=f"CN={login}",
-        groups=[],
-        permissions={},
-        assets_admin=False,
-        last_ip=payload["last_ip"],
-        last_time=payload["last_time"],
-        token=token
-    )
+    return employee
 
 
-@router_auth.post("/login", response_model=UserInfoResponse, status_code=200)
+@router_auth.post("/login", response_model=UserInfoResponse)
 async def login_by_credentials(
         credentials: LoginRequest,
         request: Request,
@@ -107,21 +88,90 @@ async def login_by_credentials(
 ):
     """
     Вход по логину и паролю.
-    Если логин == "root" — локальная аутентификация без внешнего сервиса.
-    Иначе — аутентификация через внешний сервис с RSA-шифрованием пароля.
     """
     # Удаляем старую сессию перед новым входом
     response.delete_cookie(key="session_token", path="/")
 
-    system_users = ["root", "read", "write", "android", "pc_data"]
-
     try:
         # === Обработка системных пользователей ===
+        system_users = ["root", "read", "write", "android", "pc_data"]
         if credentials.login in system_users and credentials.login == credentials.password:
-            return await create_session_for_user(db, request, response, credentials.login)
+            # Для системных пользователей задаём права вручную
+            system_permissions = {
+                "root": {
+                    "computer": {"read": True, "write": True},
+                    "supplies": {"read": True, "write": True},
+                    "users": {"read": True, "write": True},
+                    # ... все права
+                },
+                "read": {
+                    "computer": {"read": True, "write": False},
+                    "supplies": {"read": True, "write": False},
+                    # ... только read
+                },
+                "write": {
+                    "computer": {"read": True, "write": True},
+                    "supplies": {"read": True, "write": True},
+                    # ... все права
+                },
+                "android": {
+                    "android_data": {"read": True, "write": True}
+                },
+                "pc_data": {
+                    "pc_data": {"read": True, "write": True}
+                }
+            }
+
+            permissions = system_permissions.get(credentials.login, {})
+
+            # Создаём сессию с правами
+            now = datetime.now()
+            payload = {
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(hours=12)).timestamp()),
+                "login": credentials.login,
+                "last_ip": request.client.host if request.client else "127.0.0.1",
+                "last_time": now.strftime("%H:%M:%S %d.%m.%Y"),
+                "permissions": permissions,
+                "user_data": {
+                    "email": f"{credentials.login}@hmmr.ru",
+                    "fullname": credentials.login,
+                    "employee_id": credentials.login
+                }
+            }
+
+            token = jwt.encode(
+                payload,
+                key=JWT_SECRET_KEY if JWT_SECRET_KEY else None,
+                algorithm="HS256" if JWT_SECRET_KEY else "none"
+            )
+
+            ttl = 12 * 60 * 60
+            await save_session_to_redis(credentials.login, token, ttl, permissions)
+
+            response.set_cookie(
+                key="session_token",
+                value=token,
+                httponly=True,
+                samesite="lax",
+                max_age=ttl,
+                path="/"
+            )
+
+            return UserInfoResponse(
+                login=credentials.login,
+                email=f"{credentials.login}@hmmr.ru",
+                fullname=credentials.login,
+                distinguished_name=f"CN={credentials.login}",
+                groups=[],
+                permissions=permissions,
+                assets_admin=(credentials.login == "root"),
+                last_ip=payload["last_ip"],
+                last_time=payload["last_time"],
+                token=token
+            )
 
         # === Обработка обычных пользователей через внешний сервис ===
-        # Получаем токен от внешнего сервиса
         token = external_login(credentials.login, credentials.password)
 
         # Декодируем токен для извлечения данных пользователя
@@ -130,7 +180,10 @@ async def login_by_credentials(
             logger.warning("Срок действия токена истек")
             raise HTTPException(status_code=401, detail="Срок действия токена истек")
 
-        # Сохраняем сессию в Redis
+        # Проверяем, есть ли сотрудник в БД
+        employee = await create_or_update_user_from_token(db, user_data)
+
+        # Сохраняем сессию в Redis С ПРАВАМИ
         payload = jwt.decode(
             token,
             key=JWT_SECRET_KEY if JWT_SECRET_KEY else None,
@@ -145,7 +198,9 @@ async def login_by_credentials(
         ttl = int(exp - datetime.now().timestamp()) if exp else 3600
         ttl = max(ttl, 60)
 
-        await save_session_to_redis(user_data.login, token, ttl)
+        # === СОХРАНЯЕМ ПРАВА В REDIS ===
+        permissions = user_data.permissions or {}
+        await save_session_to_redis(user_data.login, token, ttl, permissions)
 
         # Устанавливаем куки
         response.set_cookie(
@@ -156,10 +211,11 @@ async def login_by_credentials(
             max_age=ttl,
             path="/"
         )
+
         logger.info("Авторизация успешна")
         result = user_data.to_dict()
         result["token"] = token
-        # result["user_id"] = db_user.user_id
+        result["employee_id"] = employee.employee_id
         logger.info("Авторизация успешна")
         return result
 
@@ -173,7 +229,7 @@ async def login_by_credentials(
         logger.error(f"Внутренняя ошибка: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка: {str(e)}")
 
-@router_auth.post("/auth_token", response_model=UserInfoResponse, status_code=200)
+@router_auth.post("/auth_token", response_model=UserInfoResponse)
 async def auth_token(
         request: TokenRequest,
         response: Response,
@@ -181,11 +237,15 @@ async def auth_token(
 ):
     # Удаляем старую сессию перед новым входом
     response.delete_cookie(key="session_token", path="/")
+
     try:
         user_data: UserJWTData = get_user_from_token(request.token)
         if user_data.is_expired:
             logger.warning("Срок действия токена истек")
             raise HTTPException(status_code=401, detail="Срок действия токена истек")
+
+        # Проверяем, есть ли сотрудник в БД
+        employee = await create_or_update_user_from_token(db, user_data)
 
         payload = jwt.decode(
             request.token,
@@ -197,22 +257,24 @@ async def auth_token(
         ttl = int(exp - datetime.now().timestamp()) if exp else 3600
         ttl = max(ttl, 60)
 
-        await save_session_to_redis(user_data.login, request.token, ttl)
+        # === СОХРАНЯЕМ ПРАВА В REDIS ===
+        permissions = user_data.permissions or {}
+        await save_session_to_redis(user_data.login, request.token, ttl, permissions)
 
-        # === Устанавливаем HTTP-only куки ===
+        # Устанавливаем HTTP-only куки
         response.set_cookie(
             key="session_token",
             value=request.token,
             httponly=True,
-            # secure=os.getenv("ENV", "dev") == "prod",  # Только HTTPS в продакшене
             samesite="lax",
             max_age=ttl,
             path="/"
         )
+
         logger.info("Авторизация успешна")
         result = user_data.to_dict()
-        result["token"] = request.token  # добавлено
-        # result["user_id"] = db_user.user_id
+        result["token"] = request.token
+        result["employee_id"] = employee.employee_id
         logger.info("Авторизация успешна")
         return result
 
