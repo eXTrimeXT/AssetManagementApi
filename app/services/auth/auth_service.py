@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.UserJWTData import UserJWTData
 from app.models.zup.employee import Employee
 from app.database.connection import get_db
-from app.database.zup.crud_zup_employees import get_employee_by_login_or_email
+from app.database.zup.crud_zup_employees import get_employee_by_login_or_email, get_employee_by_id
 from app.services.redis.redis_client import redis_client
 from app.services.zup.zup_integration import sync_all_data  # Добавлено для автосинхронизации
 
@@ -42,67 +42,116 @@ async def get_token_from_request(request: Request) -> str:
     raise HTTPException(status_code=401, detail="Токен не предоставлен")
 
 
+# async def require_authorized_user(
+#         request: Request,
+#         db: AsyncSession = Depends(get_db)
+# ) -> Employee:
+#     """
+#     Проверяет авторизацию и возвращает сотрудника из ZUP.
+#     Права пользователя сохраняются в Redis и доступны через get_user_permissions_from_redis.
+#     """
+#     try:
+#         token = await get_token_from_request(request)
+#         user_data = get_user_from_token(token)
+#
+#         if user_data.is_expired:
+#             logger.warning("Срок действия токена истек")
+#             raise HTTPException(status_code=401, detail="Срок действия токена истек")
+#
+#         session = await get_session_from_redis(user_data.login)
+#         if not session or session.get("token") != token:
+#             logger.warning("Недействительный или просроченный сеанс")
+#             raise HTTPException(status_code=401, detail="Недействительный или просроченный сеанс")
+#
+#         # === Поиск сотрудника по email или login ===
+#         employee = await get_employee_by_login_or_email(
+#             db,
+#             login=user_data.login,
+#             email=user_data.email
+#         )
+#
+#         if not employee:
+#             logger.info(f"Сотрудник {user_data.login} не найден. Попытка синхронизации из 1С...")
+#             try:
+#                 await sync_all_data(db)
+#                 # Повторный поиск после синхронизации
+#                 employee = await get_employee_by_login_or_email(
+#                     db,
+#                     login=user_data.login,
+#                     email=user_data.email
+#                 )
+#             except Exception as e:
+#                 logger.error(f"Ошибка синхронизации из 1С: {e}")
+#                 raise HTTPException(
+#                     status_code=404,
+#                     detail=f"Сотрудник {user_data.login} не найден и синхронизация не удалась"
+#                 )
+#
+#         if not employee:
+#             logger.warning(f"Сотрудник с email {user_data.email} не найден после синхронизации")
+#             raise HTTPException(
+#                 status_code=404,
+#                 detail=f"Сотрудник с email {user_data.email} не найден в системе"
+#             )
+#
+#         # Проверяем, действующий ли сотрудник
+#         if employee.dismissal_date:
+#             logger.warning(f"Сотрудник {user_data.login} уволен")
+#             raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
+#
+#         return employee
+#
+#     except TokenValidationError as e:
+#         logger.warning(f"Недопустимый токен: {str(e)}")
+#         raise HTTPException(status_code=401, detail=f"Недопустимый токен: {str(e)}")
+
+
 async def require_authorized_user(
         request: Request,
         db: AsyncSession = Depends(get_db)
 ) -> Employee:
-    """
-    Проверяет авторизацию и возвращает сотрудника из ZUP.
-    Права пользователя сохраняются в Redis и доступны через get_user_permissions_from_redis.
-    """
     try:
         token = await get_token_from_request(request)
         user_data = get_user_from_token(token)
 
         if user_data.is_expired:
-            logger.warning("Срок действия токена истек")
             raise HTTPException(status_code=401, detail="Срок действия токена истек")
 
         session = await get_session_from_redis(user_data.login)
         if not session or session.get("token") != token:
-            logger.warning("Недействительный или просроченный сеанс")
             raise HTTPException(status_code=401, detail="Недействительный или просроченный сеанс")
 
-        # === Поиск сотрудника по email или login ===
-        employee = await get_employee_by_login_or_email(
-            db,
-            login=user_data.login,
-            email=user_data.email
-        )
+        # === Получаем employee_id из Redis ===
+        employee_id = session.get("employee_id")
 
-        if not employee:
-            logger.info(f"Сотрудник {user_data.login} не найден. Попытка синхронизации из 1С...")
-            try:
-                await sync_all_data(db)
-                # Повторный поиск после синхронизации
-                employee = await get_employee_by_login_or_email(
-                    db,
-                    login=user_data.login,
-                    email=user_data.email
-                )
-            except Exception as e:
-                logger.error(f"Ошибка синхронизации из 1С: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Сотрудник {user_data.login} не найден и синхронизация не удалась"
-                )
-
-        if not employee:
-            logger.warning(f"Сотрудник с email {user_data.email} не найден после синхронизации")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Сотрудник с email {user_data.email} не найден в системе"
+        if not employee_id:
+            # Если employee_id нет в Redis — ищем в БД
+            employee = await get_employee_by_login_or_email(
+                db,
+                login=user_data.login,
+                email=user_data.email
             )
+            if not employee:
+                raise HTTPException(status_code=404, detail="Сотрудник не найден")
+            employee_id = employee.employee_id
 
-        # Проверяем, действующий ли сотрудник
+        # === Создаём объект Employee с employee_id ===
+        # Для системных пользователей создаём заглушку
+        if user_data.login in ["root", "read", "write", "android", "pc_data"]:
+            pass
+            # return create_system_employee(user_data.login)
+
+        # Для обычных пользователей — ищем в БД
+        employee = await get_employee_by_id(db, employee_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Сотрудник не найден")
+
         if employee.dismissal_date:
-            logger.warning(f"Сотрудник {user_data.login} уволен")
-            raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
+            raise HTTPException(status_code=403, detail="Сотрудник уволен")
 
         return employee
 
     except TokenValidationError as e:
-        logger.warning(f"Недопустимый токен: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Недопустимый токен: {str(e)}")
 
 
@@ -113,6 +162,13 @@ async def get_current_user_id(
     Зависимость для получения employee_id текущего авторизованного сотрудника.
     """
     return current_user.employee_id
+
+async def get_employee_id_from_redis(login: str) -> Optional[str]:
+    """Получает employee_id из Redis"""
+    session = await get_session_from_redis(login)
+    if session:
+        return session.get("employee_id")
+    return None
 
 
 def decode_token(token: str, secret_key: Optional[str] = None) -> Dict[str, Any]:

@@ -1,7 +1,12 @@
+import logging
 from fastapi import Depends, HTTPException, Request
 from typing import Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.auth.auth_service import get_user_permissions_from_redis, get_token_from_request, get_user_from_token
-import logging
+from app.database.connection import get_db
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +53,7 @@ async def check_permission(
 
 
 def require_permission(resource: str, action: str):
-    """
-    Зависимость для проверки права на ресурс.
-
-    Пример использования:
-        @router_assets.post("/")
-        async def create_asset(
-            asset_data: AssetCreate,
-            current_user = Depends(require_permission("computer", "write"))
-        ):
-            ...
-    """
-    async def dependency(request: Request):
+    async def dependency(request: Request, db: AsyncSession = Depends(get_db)):
         has_perm = await check_permission(request, resource, action)
 
         if not has_perm:
@@ -68,10 +62,24 @@ def require_permission(resource: str, action: str):
                 detail=f"Нет права '{action}' на ресурс '{resource}'"
             )
 
-        # Возвращаем данные пользователя (можно расширить)
+        # === Возвращаем объект с employee_id ===
         token = await get_token_from_request(request)
         user_data = get_user_from_token(token)
-        return user_data
+
+        # Получаем employee_id из Redis
+        from app.services.auth.auth_service import get_employee_id_from_redis
+        employee_id = await get_employee_id_from_redis(user_data.login)
+
+        if not employee_id:
+            raise HTTPException(status_code=404, detail="employee_id не найден в сессии")
+
+        # Создаём простой объект с employee_id
+        class CurrentUser:
+            def __init__(self, employee_id: str, login: str):
+                self.employee_id = employee_id
+                self.login = login
+
+        return CurrentUser(employee_id=employee_id, login=user_data.login)
 
     return dependency
 

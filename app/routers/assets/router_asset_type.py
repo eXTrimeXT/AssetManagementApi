@@ -9,7 +9,7 @@ from app.database.assets.asset_type import (
 )
 from app.schemas.assets.asset_type import AssetTypeCreate, AssetTypeUpdate, AssetTypeResponse
 from app.services.auth.auth_service import require_authorized_user
-from app.services.auth.permission_checker import require_permission
+from app.services.auth.permission_checker import require_permission, require_any_permission
 
 logger = logging.getLogger(__name__)
 router_asset_types = APIRouter(prefix="/asset-types", tags=["Asset Types"])
@@ -19,7 +19,7 @@ router_asset_types = APIRouter(prefix="/asset-types", tags=["Asset Types"])
 async def create_asset_type_endpoint(
         data: AssetTypeCreate,
         db: AsyncSession = Depends(get_db),
-        current_user=Depends(require_permission("asset_types", "write"))
+        current_user=Depends(require_any_permission("write"))
 ):
     return await create_asset_type(db, data, current_user.employee_id)
 

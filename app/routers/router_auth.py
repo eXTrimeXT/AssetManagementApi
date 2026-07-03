@@ -17,31 +17,22 @@ from app.models.UserJWTData import UserJWTData
 from app.services.redis.redis_client import redis_client
 from app.models.zup.employee import Employee
 from app.services.auth.external_auth import external_login
+from app.database.zup import get_employee_by_login_or_email
 
 logger = logging.getLogger(__name__)
 
 router_auth = APIRouter(tags=["auth"])
 
-async def save_session_to_redis(login: str, token: str, ttl: int, permissions: dict = None) -> None:
+async def save_session_to_redis(login: str, token: str, ttl: int, permissions: dict = None, employee_id: str = None) -> None:
     """
-    Сохраняет сессию и права пользователя в Redis.
-
-    Структура в Redis:
-    Key: session:{login}
-    Value: {
-        "token": "...",
-        "login": "...",
-        "permissions": {
-            "computer": {"read": true, "write": false},
-            ...
-        }
-    }
+    Сохраняет сессию, права и employee_id в Redis.
     """
     session_key = f"session:{login}"
     session_data = {
         "token": token,
         "login": login,
-        "permissions": permissions or {}
+        "permissions": permissions or {},
+        "employee_id": employee_id
     }
     await redis_client.set(session_key, json.dumps(session_data), ex=ttl)
 
@@ -53,10 +44,9 @@ async def create_or_update_user_from_token(
     """
     Создаёт/обновляет сотрудника из 1С и сохраняет права в Redis.
     """
-    from database.zup.crud_zup_employees import get_employee_by_email
 
     # Ищем сотрудника в ZUP
-    employee = await get_employee_by_email(db, user_data.email)
+    employee = await get_employee_by_login_or_email(db, login=user_data.login, email=user_data.email)
 
     if not employee:
         logger.warning(f"Сотрудник {user_data.login} не найден в БД. Синхронизируйте данные из 1С через /api/zup/sync")
@@ -199,7 +189,7 @@ async def login_by_credentials(
 
         # === СОХРАНЯЕМ ПРАВА В REDIS ===
         permissions = user_data.permissions or {}
-        await save_session_to_redis(user_data.login, token, ttl, permissions)
+        await save_session_to_redis(user_data.login, token, ttl, permissions, employee.employee_id)
 
         # Устанавливаем куки
         response.set_cookie(
