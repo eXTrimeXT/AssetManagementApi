@@ -1,4 +1,6 @@
 import logging
+import os
+
 import httpx
 from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,8 +10,8 @@ from app.database.zup.crud_zup_managers import upsert_manager
 
 logger = logging.getLogger(__name__)
 
-ZUP_BASE_URL = "https://hrm-data.hmmr.ru/"
-ZUP_AUTH = ("ITAM_USER", "(C+KB1n-3izwrj71cK")
+ZUP_BASE_URL = os.getenv("ZUP_BASE_URL", "")
+ZUP_AUTH = (os.getenv("ZUP_LOGIN", ""), os.getenv("ZUP_PASSWORD", ""))
 
 
 def clean_empty_strings(data: dict) -> dict:
