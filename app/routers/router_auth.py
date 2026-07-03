@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 import jwt
 from datetime import timedelta
@@ -54,7 +53,7 @@ async def create_or_update_user_from_token(
     """
     Создаёт/обновляет сотрудника из 1С и сохраняет права в Redis.
     """
-    from app.database.crud_zup_employees import get_employee_by_email
+    from database.zup.crud_zup_employees import get_employee_by_email
 
     # Ищем сотрудника в ZUP
     employee = await get_employee_by_email(db, user_data.email)

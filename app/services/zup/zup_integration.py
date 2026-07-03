@@ -2,13 +2,9 @@ import logging
 import httpx
 from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.crud_zup_employees import upsert_employee
-from app.database.crud_zup_positions import upsert_position
-from app.database.crud_zup_departments import upsert_department
-from app.database.crud_zup_managers import upsert_manager
-from app.database.crud_zup_assignments import upsert_assignment
-from app.database.crud_zup_reports import create_report
-from app.schemas.zup.report_schemas import AttendanceData
+from app.database.zup.crud_zup_employees import upsert_employee
+from app.database.zup.crud_zup_departments import upsert_department
+from app.database.zup.crud_zup_managers import upsert_manager
 
 logger = logging.getLogger(__name__)
 

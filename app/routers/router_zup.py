@@ -9,13 +9,13 @@ from app.schemas.zup.department_schemas import DepartmentResponse
 from app.schemas.zup.manager_schemas import ManagerResponse
 from app.schemas.zup.assignment_schemas import AssignmentResponse
 from app.schemas.zup.report_schemas import ReportResponse
-from app.database.crud_zup_employees import get_employees_list, get_employee_by_guid
-from app.database.crud_zup_positions import get_positions_list
-from app.database.crud_zup_departments import get_departments_list
-from app.database.crud_zup_managers import get_managers_list
-from app.database.crud_zup_assignments import get_assignments_list
-from app.database.crud_zup_reports import get_reports_list
-from services.zup.zup_integration import sync_all_data
+from app.database.zup.crud_zup_employees import get_employees_list, get_employee_by_guid
+from app.database.zup.crud_zup_positions import get_positions_list
+from app.database.zup.crud_zup_departments import get_departments_list
+from app.database.zup.crud_zup_managers import get_managers_list
+from app.database.zup.crud_zup_assignments import get_assignments_list
+from app.database.zup.crud_zup_reports import get_reports_list
+from app.services.zup.zup_integration import sync_all_data
 # from app.services.auth.auth_service import require_authorized_user
 
 logger = logging.getLogger(__name__)
