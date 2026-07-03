@@ -8,7 +8,7 @@ class Manager(Base):
     """Модель связи сотрудник-руководитель из 1С-ЗУП"""
     __tablename__ = "zup_managers"
 
-    id = Column(String(36), primary_key=True, index=True)  # UUID связи
+    id = Column(String(80), primary_key=True, index=True)  # UUID связи
 
     guid_employee = Column(String(36), ForeignKey("zup_employees.guid"), nullable=False, index=True)
     guid_manager = Column(String(36), ForeignKey("zup_employees.guid"), nullable=False, index=True)

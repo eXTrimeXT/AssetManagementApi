@@ -12,8 +12,8 @@ from app.schemas.zup.report_schemas import AttendanceData
 
 logger = logging.getLogger(__name__)
 
-ZUP_BASE_URL = "https://zup_qas2.hmmr.ru/mssql_zup_qas2/hs/data"
-ZUP_AUTH = ("username", "password")
+ZUP_BASE_URL = "https://hrm-data.hmmr.ru/"
+ZUP_AUTH = ("ITAM_USER", "(C+KB1n-3izwrj71cK")
 
 
 async def fetch_from_zup(endpoint: str) -> List[Dict[str, Any]]:
@@ -44,11 +44,11 @@ async def sync_all_data(db: AsyncSession) -> Dict[str, int]:
     """Универсальный метод для синхронизации всех данных из 1С"""
     stats = {
         "departments": 0,
-        "positions": 0,
+        # "positions": 0,
         "employees": 0,
         "managers": 0,
-        "assignments": 0,
-        "reports": 0
+        # "assignments": 0,
+        # "reports": 0
     }
 
     try:
@@ -68,17 +68,17 @@ async def sync_all_data(db: AsyncSession) -> Dict[str, int]:
             stats["departments"] += 1
 
         # 2. Синхронизация должностей
-        logger.info("Синхронизация должностей...")
-        positions_data = await fetch_from_zup("positions")
-        for pos in positions_data:
-            await upsert_position(db, {
-                "guid": pos["GUID"],
-                "name": pos["name"],
-                "name_en": pos.get("name_EN"),
-                "creation_date": parse_date(pos.get("creationDate")),
-                "expiration_date": parse_date(pos.get("expirationDate"))
-            })
-            stats["positions"] += 1
+        # logger.info("Синхронизация должностей...")
+        # positions_data = await fetch_from_zup("positions")
+        # for pos in positions_data:
+        #     await upsert_position(db, {
+        #         "guid": pos["GUID"],
+        #         "name": pos["name"],
+        #         "name_en": pos.get("name_EN"),
+        #         "creation_date": parse_date(pos.get("creationDate")),
+        #         "expiration_date": parse_date(pos.get("expirationDate"))
+        #     })
+        #     stats["positions"] += 1
 
         # 3. Синхронизация сотрудников
         logger.info("Синхронизация сотрудников...")
@@ -116,29 +116,29 @@ async def sync_all_data(db: AsyncSession) -> Dict[str, int]:
             stats["managers"] += 1
 
         # 5. Синхронизация назначений
-        logger.info("Синхронизация назначений...")
-        assignments_data = await fetch_from_zup("assignments")
-        for idx, assign in enumerate(assignments_data):
-            await upsert_assignment(db, {
-                "id": f"{assign['employee']}_{assign['startDate']}_{idx}",
-                "start_date": parse_date(assign["startDate"]),
-                "end_date": parse_date(assign.get("endDate")),
-                "employee_guid": assign["employee"],
-                "department_guid": assign["department"],
-                "position_guid": assign["position"],
-                "fte": float(assign.get("fte", "1").replace(",", "."))
-            })
-            stats["assignments"] += 1
+        # logger.info("Синхронизация назначений...")
+        # assignments_data = await fetch_from_zup("assignments")
+        # for idx, assign in enumerate(assignments_data):
+        #     await upsert_assignment(db, {
+        #         "id": f"{assign['employee']}_{assign['startDate']}_{idx}",
+        #         "start_date": parse_date(assign["startDate"]),
+        #         "end_date": parse_date(assign.get("endDate")),
+        #         "employee_guid": assign["employee"],
+        #         "department_guid": assign["department"],
+        #         "position_guid": assign["position"],
+        #         "fte": float(assign.get("fte", "1").replace(",", "."))
+        #     })
+        #     stats["assignments"] += 1
 
         # 6. Синхронизация отчётов
-        logger.info("Синхронизация отчётов...")
-        report_data = await fetch_from_zup("report")
-        attendance_data = [
-            AttendanceData(**item)
-            for item in report_data.get("attendanceData", [])
-        ]
-        await create_report(db, attendance_data)
-        stats["reports"] = len(attendance_data)
+        # logger.info("Синхронизация отчётов...")
+        # report_data = await fetch_from_zup("report")
+        # attendance_data = [
+        #     AttendanceData(**item)
+        #     for item in report_data.get("attendanceData", [])
+        # ]
+        # await create_report(db, attendance_data)
+        # stats["reports"] = len(attendance_data)
 
         logger.info(f"Синхронизация завершена: {stats}")
         return stats
