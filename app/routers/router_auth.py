@@ -54,10 +54,10 @@ async def create_or_update_user_from_token(
     """
     Создаёт/обновляет сотрудника из 1С и сохраняет права в Redis.
     """
-    from app.database.crud_zup_employees import get_employee_by_id
+    from app.database.crud_zup_employees import get_employee_by_email
 
     # Ищем сотрудника в ZUP
-    employee = await get_employee_by_id(db, user_data.login)
+    employee = await get_employee_by_email(db, user_data.email)
 
     if not employee:
         logger.warning(f"Сотрудник {user_data.login} не найден в БД. Синхронизируйте данные из 1С через /api/zup/sync")
@@ -67,7 +67,7 @@ async def create_or_update_user_from_token(
         )
 
     # Проверяем, действующий ли сотрудник
-    if not employee.is_active:
+    if employee.dismissal_date:
         logger.warning(f"Сотрудник {user_data.login} уволен")
         raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
 

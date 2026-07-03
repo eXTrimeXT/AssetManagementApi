@@ -1,5 +1,5 @@
 from typing import Optional, Sequence, List
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.models.zup.employee import Employee
@@ -21,6 +21,43 @@ async def get_employee_by_id(db: AsyncSession, employee_id: str) -> Optional[Emp
     )
     return result.scalar_one_or_none()
 
+async def get_employee_by_login_or_email(
+        db: AsyncSession,
+        login: str,
+        email: Optional[str] = None
+) -> Optional[Employee]:
+    """
+    Ищет сотрудника по приоритету:
+    1. По email (если передан)
+    2. По login[4:] == employee_id[4:] (если login длиннее 4 символов)
+    3. По точному совпадению login == employee_id
+    """
+    # 1. Поиск по email
+    if email:
+        result = await db.execute(
+            select(Employee).where(Employee.email == email)
+        )
+        employee = result.scalar_one_or_none()
+        if employee:
+            return employee
+
+    # 2. Поиск по обрезанному login и employee_id
+    if login and len(login) > 4:
+        login_suffix = login[4:]
+        result = await db.execute(
+            select(Employee).where(
+                func.substring(Employee.employee_id, 5) == login_suffix
+            )
+        )
+        employee = result.scalar_one_or_none()
+        if employee:
+            return employee
+
+    # 3. Поиск по точному совпадению (для системных пользователей типа "root")
+    result = await db.execute(
+        select(Employee).where(Employee.employee_id == login)
+    )
+    return result.scalar_one_or_none()
 
 async def create_employee(db: AsyncSession, employee_in: EmployeeCreate) -> Employee:
     """Создать нового сотрудника"""

@@ -12,7 +12,8 @@ from pathlib import Path
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
-# from app.services.auth.auth_service import extract_login_from_request
+
+from app.services.auth.auth_service import extract_login_from_request
 
 # === КОНФИГУРАЦИЯ ===
 PROJECT_ROOT = Path("/app")
@@ -194,8 +195,7 @@ logger = logging.getLogger("app.middleware")
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = str(uuid.uuid4())
-        # user_login = await extract_login_from_request(request)
-        user_login = "LOGIN"
+        user_login = await extract_login_from_request(request)
         client_ip = request.client.host if request.client else None
         route_path = request.url.path
         method = request.method

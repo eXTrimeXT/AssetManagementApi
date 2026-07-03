@@ -3,16 +3,15 @@ import jwt
 import json
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.UserJWTData import UserJWTData
-from app.models.zup.employee import Employee  # ← Изменено
-from app.database.crud_zup_employees import get_employee_by_id  # ← Изменено
+from app.models.zup.employee import Employee
 from app.database.connection import get_db
+from app.database.crud_zup_employees import get_employee_by_login_or_email
 from app.services.redis.redis_client import redis_client
-from app.services.zup_integration import sync_all_data  # ← Добавлено для автосинхронизации
+from app.services.zup_integration import sync_all_data  # Добавлено для автосинхронизации
 
 logger = logging.getLogger(__name__)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
@@ -64,26 +63,39 @@ async def require_authorized_user(
             logger.warning("Недействительный или просроченный сеанс")
             raise HTTPException(status_code=401, detail="Недействительный или просроченный сеанс")
 
-        # Ищем сотрудника в ZUP
-        from app.database.crud_zup_employees import get_employee_by_id
-        employee = await get_employee_by_id(db, user_data.login)
+        # === Поиск сотрудника по email или login ===
+        employee = await get_employee_by_login_or_email(
+            db,
+            login=user_data.login,
+            email=user_data.email
+        )
 
         if not employee:
-            logger.info(f"Сотрудник {user_data.login} не найден в БД. Попытка синхронизации из 1С...")
+            logger.info(f"Сотрудник {user_data.login} не найден. Попытка синхронизации из 1С...")
             try:
-                from app.services.zup_integration import sync_all_data
                 await sync_all_data(db)
-                employee = await get_employee_by_id(db, user_data.login)
+                # Повторный поиск после синхронизации
+                employee = await get_employee_by_login_or_email(
+                    db,
+                    login=user_data.login,
+                    email=user_data.email
+                )
             except Exception as e:
                 logger.error(f"Ошибка синхронизации из 1С: {e}")
-                raise HTTPException(status_code=404, detail=f"Сотрудник {user_data.login} не найден и синхронизация не удалась")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Сотрудник {user_data.login} не найден и синхронизация не удалась"
+                )
 
         if not employee:
-            logger.warning(f"Сотрудник {user_data.login} не найден после синхронизации")
-            raise HTTPException(status_code=404, detail=f"Сотрудник {user_data.login} не найден в системе")
+            logger.warning(f"Сотрудник с email {user_data.email} не найден после синхронизации")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Сотрудник с email {user_data.email} не найден в системе"
+            )
 
         # Проверяем, действующий ли сотрудник
-        if not employee.is_active:
+        if employee.dismissal_date:
             logger.warning(f"Сотрудник {user_data.login} уволен")
             raise HTTPException(status_code=403, detail="Учетная запись сотрудника деактивирована")
 
@@ -162,3 +174,39 @@ async def get_user_permissions_from_redis(login: str) -> Optional[dict]:
     if session:
         return session.get("permissions", {})
     return None
+
+
+# === Извлечение login из токена для логирования ===
+async def extract_login_from_request(request: Request) -> Optional[str]:
+    """
+    Пытается извлечь login из токена (заголовок или куки).
+    Возвращает login или None, если токен отсутствует/невалиден.
+    Не выбрасывает исключения — для безопасного использования в мидлваре.
+    """
+    try:
+        # 1. Пробуем взять токен из заголовка Authorization
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        else:
+            # 2. Пробуем взять из куки
+            token = request.cookies.get("session_token")
+            if not token:
+                return None
+
+        # Декодируем токен БЕЗ строгой проверки (только для логирования)
+        payload = jwt.decode(
+            token,
+            key=JWT_SECRET_KEY if JWT_SECRET_KEY else None,
+            algorithms=["HS256"],
+            options={
+                "verify_signature": bool(JWT_SECRET_KEY),
+                "verify_exp": False,  # не блокируем логирование, если токен просрочен
+                "verify_iat": False
+            }
+        )
+        return payload.get("login")
+    except Exception as e:
+        # Любая ошибка → возвращаем None, чтобы не ломать запрос
+        logger.error(f"Ошибка: {str(e)}")
+        return None
