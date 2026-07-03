@@ -36,6 +36,13 @@ from app.routers.router_vendors import router_vendors                   # зав
 # from app.routers.router_assets import router_assets                     # зависим от: модели, warehouse, vendor, software, +(опционально) содержит ссылку на самого себя
 # from app.routers.router_catalog_items import router_catalog_items       # каталог зависим от модели, актива, пользователя (смысл = связать много активов с пользователями)
 
+from app.routers.assets import (
+    router_asset_types,
+    router_asset_classes,
+    router_asset_models,
+    router_assets
+)
+
 
 # --- Управление жизненным циклом (Lifespan) ---
 @asynccontextmanager
@@ -90,7 +97,10 @@ app.include_router(router_companies, prefix="/api")         # Companies
 app.include_router(router_vendor_classes, prefix="/api")    # Vendor Classes
 app.include_router(router_vendors, prefix="/api")           # Vendors
 
-# app.include_router(router_assets_types, prefix="/api")           # Типы активов
+app.include_router(router_asset_types, prefix="/api")
+app.include_router(router_asset_classes, prefix="/api")
+app.include_router(router_asset_models, prefix="/api")
+app.include_router(router_assets, prefix="/api")
 
 
 router_root = APIRouter(tags=["/"])

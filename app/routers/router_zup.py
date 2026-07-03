@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from app.database.connection import get_db
-from app.schemas.zup.employee_schemas import EmployeeResponse, EmployeeShortResponse, EmployeeBase
+from app.schemas.zup.employee_schemas import EmployeeResponse, EmployeeBase
 from app.schemas.zup.position_schemas import PositionResponse
 from app.schemas.zup.department_schemas import DepartmentResponse
 from app.schemas.zup.manager_schemas import ManagerResponse
@@ -15,7 +15,7 @@ from app.database.crud_zup_departments import get_departments_list
 from app.database.crud_zup_managers import get_managers_list
 from app.database.crud_zup_assignments import get_assignments_list
 from app.database.crud_zup_reports import get_reports_list
-from app.services.zup_integration import sync_all_data
+from services.zup.zup_integration import sync_all_data
 # from app.services.auth.auth_service import require_authorized_user
 
 logger = logging.getLogger(__name__)

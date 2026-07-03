@@ -11,7 +11,7 @@ from app.models.zup.employee import Employee
 from app.database.connection import get_db
 from app.database.crud_zup_employees import get_employee_by_login_or_email
 from app.services.redis.redis_client import redis_client
-from app.services.zup_integration import sync_all_data  # Добавлено для автосинхронизации
+from services.zup.zup_integration import sync_all_data  # Добавлено для автосинхронизации
 
 logger = logging.getLogger(__name__)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
