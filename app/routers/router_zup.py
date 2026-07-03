@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from app.database.connection import get_db
-from app.schemas.zup.employee_schemas import EmployeeResponse, EmployeeShortResponse
+from app.schemas.zup.employee_schemas import EmployeeResponse, EmployeeShortResponse, EmployeeBase
 from app.schemas.zup.position_schemas import PositionResponse
 from app.schemas.zup.department_schemas import DepartmentResponse
 from app.schemas.zup.manager_schemas import ManagerResponse
@@ -43,7 +43,7 @@ async def sync_zup_data(
         raise HTTPException(status_code=500, detail=f"Ошибка синхронизации: {str(e)}")
 
 
-@router_zup.get("/employees", response_model=List[EmployeeShortResponse], summary="Получить список сотрудников")
+@router_zup.get("/employees", response_model=List[EmployeeBase], summary="Получить список сотрудников")
 async def get_employees(
         skip: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=100),

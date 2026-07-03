@@ -81,8 +81,3 @@ class Employee(Base):
         """Полное ФИО на английском"""
         parts = [self.last_name_en, self.first_name_en, self.middle_name_en]
         return " ".join(filter(None, parts))
-
-    @property
-    def is_active(self) -> bool:
-        """Действующий ли сотрудник"""
-        return not self.dismissal_date

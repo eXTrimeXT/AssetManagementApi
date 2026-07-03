@@ -7,7 +7,7 @@ class EmployeeBase(BaseModel):
     """Базовая схема сотрудника"""
     guid: str = Field(..., max_length=36)
     guid_person: Optional[str] = Field(None, max_length=36)
-    employee_id: str = Field(..., max_length=8)
+    employee_id: str = Field(..., max_length=20)
 
     last_name: Optional[str] = Field(None, max_length=100)
     first_name: Optional[str] = Field(None, max_length=100)
@@ -64,7 +64,6 @@ class EmployeeResponse(EmployeeBase):
     # Вычисляемые поля
     full_name_ru: Optional[str] = None
     full_name_en: Optional[str] = None
-    is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,8 +74,7 @@ class EmployeeShortResponse(BaseModel):
     employee_id: str
     full_name_ru: Optional[str] = None
     full_name_en: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     phone: Optional[str] = None
-    is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True)

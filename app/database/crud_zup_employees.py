@@ -90,29 +90,45 @@ async def get_employees_list(
         employee_id: Optional[str] = None,
         last_name: Optional[str] = None,
         first_name: Optional[str] = None,
+        middle_name: Optional[str] = None,
         last_name_en: Optional[str] = None,
         first_name_en: Optional[str] = None,
+        middle_name_en: Optional[str] = None,
         department_guid: Optional[str] = None,
         position_guid: Optional[str] = None,
         is_active: Optional[bool] = None
 ) -> Sequence[Employee]:
-    """Получить список сотрудников с фильтрацией"""
+    """
+    Получить список сотрудников с фильтрацией.
+    Все параметры опциональные и комбинируются через AND.
+    """
     query = select(Employee)
 
     if employee_id:
         query = query.where(Employee.employee_id == employee_id)
+
+    # Фильтры по ФИО (каждый работает независимо)
     if last_name:
         query = query.where(Employee.last_name.ilike(f"%{last_name}%"))
     if first_name:
         query = query.where(Employee.first_name.ilike(f"%{first_name}%"))
+    if middle_name:
+        query = query.where(Employee.middle_name.ilike(f"%{middle_name}%"))
+
+    # Фильтры по ФИО на английском
     if last_name_en:
         query = query.where(Employee.last_name_en.ilike(f"%{last_name_en}%"))
     if first_name_en:
         query = query.where(Employee.first_name_en.ilike(f"%{first_name_en}%"))
+    if middle_name_en:
+        query = query.where(Employee.middle_name_en.ilike(f"%{middle_name_en}%"))
+
     if department_guid:
         query = query.where(Employee.department_guid == department_guid)
     if position_guid:
         query = query.where(Employee.position_guid == position_guid)
+
+    # Фильтр по статусу (действующий/уволен)
     if is_active is not None:
         if is_active:
             query = query.where(Employee.dismissal_date.is_(None))

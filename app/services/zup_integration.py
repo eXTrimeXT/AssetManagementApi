@@ -16,6 +16,10 @@ ZUP_BASE_URL = "https://hrm-data.hmmr.ru/"
 ZUP_AUTH = ("ITAM_USER", "(C+KB1n-3izwrj71cK")
 
 
+def clean_empty_strings(data: dict) -> dict:
+    """Преобразует пустые строки в None"""
+    return {k: (None if v == "" else v) for k, v in data.items()}
+
 async def fetch_from_zup(endpoint: str) -> List[Dict[str, Any]]:
     """Получить данные из 1С-ЗУП"""
     url = f"{ZUP_BASE_URL}/{endpoint}"
@@ -82,9 +86,31 @@ async def sync_all_data(db: AsyncSession) -> Dict[str, int]:
 
         # 3. Синхронизация сотрудников
         logger.info("Синхронизация сотрудников...")
+        # employees_data = await fetch_from_zup("employees")
+        # for emp in employees_data:
+        #     await upsert_employee(db, {
+        #         "guid": emp["GUID"],
+        #         "guid_person": emp.get("GUID_Person"),
+        #         "employee_id": emp["employeeId"],
+        #         "last_name": emp.get("lastName"),
+        #         "first_name": emp.get("firstName"),
+        #         "middle_name": emp.get("middleName"),
+        #         "last_name_en": emp.get("lastName_EN"),
+        #         "first_name_en": emp.get("firstName_EN"),
+        #         "middle_name_en": emp.get("middleName_EN"),
+        #         "birth_date": parse_date(emp.get("birthDate")),
+        #         "employment_date": parse_date(emp.get("employmentDate")),
+        #         "dismissal_date": parse_date(emp.get("dismissalDate")),
+        #         "phone": emp.get("phone"),
+        #         "email": emp.get("email"),
+        #         "position_guid": emp.get("position"),
+        #         "department_guid": emp.get("department")
+        #     })
+        #     stats["employees"] += 1
+
         employees_data = await fetch_from_zup("employees")
         for emp in employees_data:
-            await upsert_employee(db, {
+            employee_data = {
                 "guid": emp["GUID"],
                 "guid_person": emp.get("GUID_Person"),
                 "employee_id": emp["employeeId"],
@@ -101,7 +127,12 @@ async def sync_all_data(db: AsyncSession) -> Dict[str, int]:
                 "email": emp.get("email"),
                 "position_guid": emp.get("position"),
                 "department_guid": emp.get("department")
-            })
+            }
+
+            # Очищаем пустые строки
+            employee_data = clean_empty_strings(employee_data)
+        
+            await upsert_employee(db, employee_data)
             stats["employees"] += 1
 
         # 4. Синхронизация руководителей

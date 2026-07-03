@@ -4,9 +4,9 @@ from typing import Optional
 
 
 class ManagerBase(BaseModel):
-    id: str = Field(..., max_length=36)
-    guid_employee: str = Field(..., max_length=36)
-    guid_manager: str = Field(..., max_length=36)
+    id: str = Field(..., max_length=100)
+    guid_employee: str = Field(..., max_length=100)
+    guid_manager: str = Field(..., max_length=100)
 
 
 class ManagerCreate(ManagerBase):
