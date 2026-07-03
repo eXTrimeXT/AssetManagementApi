@@ -6,14 +6,6 @@ from app.models.assets.asset_class import AssetClass
 from app.schemas.assets.asset_class import AssetClassCreate, AssetClassUpdate
 
 
-async def create_asset_class(db: AsyncSession, data: AssetClassCreate, employee_id: str) -> AssetClass:
-    db_obj = AssetClass(**data.model_dump(), created_by=employee_id, updated_by=employee_id)
-    db.add(db_obj)
-    await db.commit()
-    await db.refresh(db_obj)
-    return db_obj
-
-
 async def get_asset_class_by_id(db: AsyncSession, class_id: int) -> Optional[AssetClass]:
     result = await db.execute(
         select(AssetClass)
@@ -25,6 +17,16 @@ async def get_asset_class_by_id(db: AsyncSession, class_id: int) -> Optional[Ass
         .where(AssetClass.class_id == class_id)
     )
     return result.scalar_one_or_none()
+
+
+async def create_asset_class(db: AsyncSession, data: AssetClassCreate, employee_id: str) -> AssetClass | None:
+    db_obj = AssetClass(**data.model_dump(), created_by=employee_id, updated_by=employee_id)
+    db.add(db_obj)
+    await db.commit()
+    await db.refresh(db_obj)
+    # return db_obj
+    # Перезагружаем объект с загруженными связями для корректной сериализации
+    return await get_asset_class_by_id(db, db_obj.class_id)
 
 
 async def get_asset_classes_list(
@@ -62,7 +64,9 @@ async def update_asset_class(db: AsyncSession, class_id: int, data: AssetClassUp
 
     await db.commit()
     await db.refresh(obj)
-    return obj
+    # return obj
+    # Перезагружаем с загруженными связями
+    return await get_asset_class_by_id(db, class_id)
 
 
 async def delete_asset_class(db: AsyncSession, class_id: int) -> bool:

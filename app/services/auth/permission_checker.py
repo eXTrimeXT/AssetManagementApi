@@ -1,12 +1,11 @@
-import logging
 from fastapi import Depends, HTTPException, Request
-from typing import Optional
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.services.auth.auth_service import get_user_permissions_from_redis, get_token_from_request, get_user_from_token
-from app.database.connection import get_db
-
+from typing import Optional, List
+from app.services.auth.auth_service import (
+    get_user_permissions_from_redis,
+    get_token_from_request,
+    get_user_from_token
+)
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ async def check_permission(
         action: str
 ) -> bool:
     """
-    Проверяет наличие права на ресурс из Redis.
+    Проверяет наличие права на конкретный ресурс из Redis.
 
     Args:
         request: HTTP запрос
@@ -38,7 +37,7 @@ async def check_permission(
             logger.warning(f"Права не найдены в Redis для пользователя {user_data.login}")
             return False
 
-        # Проверяем наличие права
+        # Проверяем наличие права на конкретный ресурс
         resource_perms = permissions.get(resource, {})
         has_permission = resource_perms.get(action, False)
 
@@ -52,85 +51,101 @@ async def check_permission(
         return False
 
 
-def require_permission(resource: str, action: str):
-    async def dependency(request: Request, db: AsyncSession = Depends(get_db)):
-        has_perm = await check_permission(request, resource, action)
-
-        if not has_perm:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Нет права '{action}' на ресурс '{resource}'"
-            )
-
-        # === Возвращаем объект с employee_id ===
+async def check_any_permission(
+        request: Request,
+        action: str
+) -> bool:
+    """
+    Проверяет наличие права на ЛЮБОЙ тип актива из Redis.
+    Исключает 'users' из проверки.
+    """
+    try:
         token = await get_token_from_request(request)
         user_data = get_user_from_token(token)
 
-        # Получаем employee_id из Redis
-        from app.services.auth.auth_service import get_employee_id_from_redis
-        employee_id = await get_employee_id_from_redis(user_data.login)
+        permissions = await get_user_permissions_from_redis(user_data.login)
 
-        if not employee_id:
-            raise HTTPException(status_code=404, detail="employee_id не найден в сессии")
+        if not permissions:
+            return False
 
-        # Создаём простой объект с employee_id
-        class CurrentUser:
-            def __init__(self, employee_id: str, login: str):
-                self.employee_id = employee_id
-                self.login = login
+        # Проверяем через цикл — есть ли право хотя бы на один тип (кроме users)
+        for resource, perms in permissions.items():
+            if resource == "users":
+                continue
+            if perms.get(action, False):
+                return True
 
-        return CurrentUser(employee_id=employee_id, login=user_data.login)
+        return False
+
+    except Exception as e:
+        logger.error(f"Ошибка проверки прав: {e}")
+        return False
+
+
+def require_permission(resource: str = None, action: str = "read"):
+    """
+    Зависимость для проверки права на ресурс.
+
+    Если resource не указан — проверяет наличие права на ЛЮБОЙ тип актива.
+    """
+    async def dependency(request: Request):
+        if resource is None:
+            has_perm = await check_any_permission(request, action)
+            if not has_perm:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Нет права '{action}' ни на один тип актива"
+                )
+        else:
+            has_perm = await check_permission(request, resource, action)
+            if not has_perm:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Нет права '{action}' на ресурс '{resource}'"
+                )
+
+        # Возвращаем данные пользователя
+        token = await get_token_from_request(request)
+        user_data = get_user_from_token(token)
+        return user_data
 
     return dependency
 
 
-def require_any_permission(action: str, resources: list[str] = None):
+def require_any_permission(action: str, resources: List[str] = None):
     """
     Проверяет наличие права на ЛЮБОЙ из указанных ресурсов.
-    Если resources не указан - проверяет все ресурсы из токена.
-
-    Пример использования:
-        @router_assets.get("/")
-        async def get_assets(
-            current_user = Depends(require_any_permission("read"))
-        ):
-            ...
     """
     async def dependency(request: Request):
         token = await get_token_from_request(request)
         user_data = get_user_from_token(token)
 
-        # Получаем права из Redis
         permissions = await get_user_permissions_from_redis(user_data.login)
 
         if not permissions:
             raise HTTPException(status_code=403, detail="Права не найдены")
 
-        # Если ресурсы не указаны - проверяем все
         if resources is None:
-            check_resources = list(permissions.keys())
+            check_resources = [k for k in permissions.keys() if k != "users"]
         else:
             check_resources = resources
 
-        # Проверяем через цикл - есть ли право хотя бы на один ресурс
         for resource in check_resources:
             resource_perms = permissions.get(resource, {})
             if resource_perms.get(action, False):
-                return user_data  # Нашли право - возвращаем пользователя
+                return user_data
 
-        # Не нашли ни одного права
         raise HTTPException(
             status_code=403,
-            detail=f"Нет права '{action}' ни на один из ресурсов: {check_resources}"
+            detail=f"Нет права '{action}' ни на один из ресурсов"
         )
 
     return dependency
 
 
-async def get_accessible_asset_types(request: Request) -> list[str]:
+async def get_accessible_asset_types(request: Request) -> List[str]:
     """
     Возвращает список типов активов, на которые у пользователя есть право read.
-    Используется для фильтрации списков активов.
     """
     token = await get_token_from_request(request)
     user_data = get_user_from_token(token)
@@ -142,6 +157,8 @@ async def get_accessible_asset_types(request: Request) -> list[str]:
 
     accessible_types = []
     for resource, perms in permissions.items():
+        if resource == "users":
+            continue
         if perms.get("read", False):
             accessible_types.append(resource)
 

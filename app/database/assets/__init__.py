@@ -11,8 +11,7 @@ from app.database.assets.asset_model import (
     update_asset_model, delete_asset_model
 )
 from app.database.assets.asset import (
-    create_asset, get_asset_by_id, get_assets_list,
-    get_assets_list_with_permissions, update_asset, delete_asset,
+    create_asset, get_asset_by_id, get_assets_list, update_asset, delete_asset,
     get_asset_children, get_asset_children_with_permissions
 )
 
@@ -24,6 +23,6 @@ __all__ = [
     "create_asset_model", "get_asset_model_by_id", "get_asset_models_list",
     "update_asset_model", "delete_asset_model",
     "create_asset", "get_asset_by_id", "get_assets_list",
-    "get_assets_list_with_permissions", "update_asset", "delete_asset",
+    "update_asset", "delete_asset",
     "get_asset_children", "get_asset_children_with_permissions"
 ]

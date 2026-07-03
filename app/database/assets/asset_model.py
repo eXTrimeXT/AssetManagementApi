@@ -3,28 +3,32 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.models.assets.asset_model import AssetModel
+from app.models.assets import AssetClass
 from app.schemas.assets.asset_model import AssetModelCreate, AssetModelUpdate
-
-
-async def create_asset_model(db: AsyncSession, data: AssetModelCreate, employee_id: str) -> AssetModel:
-    db_obj = AssetModel(**data.model_dump(), created_by=employee_id, updated_by=employee_id)
-    db.add(db_obj)
-    await db.commit()
-    await db.refresh(db_obj)
-    return db_obj
 
 
 async def get_asset_model_by_id(db: AsyncSession, model_id: int) -> Optional[AssetModel]:
     result = await db.execute(
         select(AssetModel)
         .options(
-            selectinload(AssetModel.asset_class).selectinload(AssetModel.asset_class.property.asset_type),
+            selectinload(AssetModel.asset_class).options(
+                selectinload(AssetClass.asset_type)
+            ),
             selectinload(AssetModel.creator),
             selectinload(AssetModel.updater)
         )
         .where(AssetModel.model_id == model_id)
     )
     return result.scalar_one_or_none()
+
+
+async def create_asset_model(db: AsyncSession, data: AssetModelCreate, employee_id: str) -> AssetModel | None:
+    db_obj = AssetModel(**data.model_dump(), created_by=employee_id, updated_by=employee_id)
+    db.add(db_obj)
+    await db.commit()
+    await db.refresh(db_obj)
+    # return db_obj
+    return await get_asset_model_by_id(db, db_obj.model_id)
 
 
 async def get_asset_models_list(
@@ -35,7 +39,9 @@ async def get_asset_models_list(
         class_id: Optional[int] = None
 ) -> Sequence[AssetModel]:
     query = select(AssetModel).options(
-        selectinload(AssetModel.asset_class).selectinload(AssetModel.asset_class.property.asset_type),
+        selectinload(AssetModel.asset_class).options(
+            selectinload(AssetClass.asset_type)
+        ),
         selectinload(AssetModel.creator),
         selectinload(AssetModel.updater)
     )
@@ -62,7 +68,8 @@ async def update_asset_model(db: AsyncSession, model_id: int, data: AssetModelUp
 
     await db.commit()
     await db.refresh(obj)
-    return obj
+    # return obj
+    return await get_asset_model_by_id(db, obj.model_id)
 
 
 async def delete_asset_model(db: AsyncSession, model_id: int) -> bool:
